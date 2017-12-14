@@ -48,13 +48,31 @@ def http(server, connection, data):
     print data
 
 class HttpServer(SocketServer):
-
+    METHODS = ("GET")
     REQ_REGEX = re.compile(r"(\w+) ([^\s]+) (\w+)/(\d+\.\d+)")
 
     def on_message(self, conn, data):
         matches = self.REQ_REGEX.findall(data)
         method, path, protocol, version = matches[0]
         print method, path, protocol, version
+
+        if method in self.METHODS:
+            getattr(self, "_handle_{method}_req".format(method=method.lower()))(connection=conn,
+                                                                                method=method,
+                                                                                path=path,
+                                                                                protocol=protocol,
+                                                                                version=version,
+                                                                                data=data)
+
+    def _handle_get_req(self,
+                        connection=None,
+                        method=None,
+                        path=None,
+                        protocol=None,
+                        version=None,
+                        data=None):
+        print "AYYY"
+
 
 if __name__ == "__main__":
     s = HttpServer("localhost")
