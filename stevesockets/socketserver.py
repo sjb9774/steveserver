@@ -48,9 +48,10 @@ class HttpServer(SocketServer):
     METHODS = ("GET")
     REQ_REGEX = re.compile(r"(\w+) ([^\s]+) (\w+)/(\d+\.\d+)")
 
-    def __init__(self, address, port=50007, listen_max=5, on_message=None, docroot="/var/www/steve"):
+    def __init__(self, address, port=50007, listen_max=5, on_message=None, server_name="HttpServer", docroot="/var/www/steve"):
         super(HttpServer, self).__init__(address, port, listen_max, on_message)
         self.docroot = docroot
+        self.server_name = server_name
 
     def on_message(self, conn, data):
         matches = self.REQ_REGEX.findall(data)
@@ -76,8 +77,11 @@ class HttpServer(SocketServer):
         status = self._get_status(status_code)
         header = "\n".join(["HTTP/1.1 {status_code} {status}",
                     "Date: {date_str}",
-                    "Server: Steve-HTTP-Server",
-                    "Connection: close\n\n"]).format(status_code=status_code, status=status, date_str=date_str)
+                    "Server: {server_name}",
+                    "Connection: close\n\n"]).format(status_code=status_code,
+                                                     status=status,
+                                                     date_str=date_str,
+                                                     server_name=self.server_name)
         return header
 
     def _handle_get_req(self,
@@ -96,12 +100,22 @@ class HttpServer(SocketServer):
                 body = f.read()
             response = header + body
         else:
-            header = self._generate_headers(404)
-            body = "<p>404 Page Not Found</p>"
-            response = header + body
+            response = self._get_404_response()
         connection.sendall(response)
         connection.close()
 
+    def _get_404_response(self):
+        header = self._generate_headers(404)
+        body = "<p>404 Page Not Found</p>"
+        if hasattr(self, "_not_found_page") and self._not_found_page:
+            with open(self._not_found_page, "r") as f:
+                body = f.read()
+        return header + body
+
+    def set_404_page(self, path):
+        self._not_found_page = path
+
 if __name__ == "__main__":
     s = HttpServer("localhost", port=80)
+    s.set_404_page(s.docroot + "/404.html")
     s.serve()
