@@ -1,35 +1,51 @@
 import socket
-import thread
+import select
+import threading
 import time
 import re
 import os
 from datetime import datetime
+import logging
+
+
+logging.basicConfig(level=logging.DEBUG,
+                    format='%(asctime)s-%(name)s-%(levelname)s: %(message)s')
+logger = logging.getLogger(__name__)
 
 class SocketServer(object):
 
-    def __init__(self, address, port=50007, listen_max=5, on_message=None):
+    def __init__(self, address, port=9000, listen_max=5, on_message=None):
         self.address = address
         self.port = port
         self.listen_max = listen_max
         self.all_connections = []
-        self.on_message = on_message or getattr(self, "on_message")
+        self.on_message = on_message or getattr(self, "on_message", None)
+        self.alive = False
+        self.connection_threads = []
 
     def serve(self):
         self.socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         self.socket.bind((self.address, self.port))
         self.socket.listen(self.listen_max)
+        self.alive = True
 
         try:
-            while 1:
-                conn, addr = self.socket.accept()
-                self.all_connections.append(conn)
-                thread.start_new_thread(self.handle_connection, (conn, addr))
+            while self.alive:
+                if select.select([self.socket], [], [])[0]:
+                    conn, addr = self.socket.accept()
+                    logging.debug("New connection from '{addr}'".format(addr=addr[0]))
+                    self.all_connections.append(conn)
+                    t = threading.Thread(target=self.handle_connection, args=(conn, addr))
+                    self.connection_threads.append(t)
+                    t.start()
         finally:
+            logging.debug("Stopping server")
+            self.stop()
             self.socket.close()
 
     def handle_connection(self, conn, address):
         try:
-            while 1:
+            while self.alive:
                 try:
                     data = conn.recv(1024)
                 except socket.error as err:
@@ -40,8 +56,16 @@ class SocketServer(object):
                 elif self.on_message:
                     self.on_message(conn, data)
         finally:
+            logging.debug("Closing connection at '{addr}'".format(addr=address[0]))
             conn.close()
             self.all_connections = [c for c in self.all_connections if c != conn]
+
+    def stop(self):
+        self.alive = False
+        logging.debug("Killing {x} connections".format(x=len(self.all_connections)))
+        [c.close() for c in self.all_connections]
+        logging.debug("Killing {x} threads".format(x=len(self.connection_threads)))
+        [t.join() for t in self.connection_threads]
 
 
 class HttpServer(SocketServer):
@@ -91,7 +115,6 @@ class HttpServer(SocketServer):
                         protocol=None,
                         version=None,
                         data=None):
-
         requested_path = "{docroot}{path}".format(docroot=self.docroot, path=path)
         response = ""
         if os.path.exists(requested_path) and not os.path.isdir(requested_path):
@@ -118,4 +141,5 @@ class HttpServer(SocketServer):
 if __name__ == "__main__":
     s = HttpServer("localhost", port=80)
     s.set_404_page(s.docroot + "/404.html")
+    print("Serving @ '{addr}' on port {port}".format(addr="localhost", port=80))
     s.serve()
