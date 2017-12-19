@@ -21,7 +21,6 @@ class SocketServer(object):
         self.all_connections = []
         self.on_message = on_message or getattr(self, "on_message", None)
         self.alive = False
-        self.connection_threads = []
 
     def serve(self):
         self.socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
@@ -31,12 +30,11 @@ class SocketServer(object):
 
         try:
             while self.alive:
-                if select.select([self.socket], [], [])[0]:
+                if select.select([self.socket], [], [], 0)[0]:
                     conn, addr = self.socket.accept()
                     logging.debug("New connection from '{addr}'".format(addr=addr[0]))
                     self.all_connections.append(conn)
                     t = threading.Thread(target=self.handle_connection, args=(conn, addr))
-                    self.connection_threads.append(t)
                     t.start()
         finally:
             logging.debug("Stopping server")
@@ -49,12 +47,14 @@ class SocketServer(object):
                 try:
                     data = conn.recv(1024)
                 except socket.error as err:
+
+                    logger.warn("Socket Exception on receiving data: '{err}' ({addr})".format(err=err.strerror, conn=conn, addr=address))
                     break
 
                 if not data:
                     break
                 elif self.on_message:
-                    self.on_message(conn, data)
+                    self.on_message(conn, str(data))
         finally:
             logging.debug("Closing connection at '{addr}'".format(addr=address[0]))
             conn.close()
@@ -64,8 +64,7 @@ class SocketServer(object):
         self.alive = False
         logging.debug("Killing {x} connections".format(x=len(self.all_connections)))
         [c.close() for c in self.all_connections]
-        logging.debug("Killing {x} threads".format(x=len(self.connection_threads)))
-        [t.join() for t in self.connection_threads]
+        logging.debug("Threads: {n}".format(n=threading.active_count()))
 
 
 class HttpServer(SocketServer):
@@ -124,7 +123,7 @@ class HttpServer(SocketServer):
             response = header + body
         else:
             response = self._get_404_response()
-        connection.sendall(response)
+        connection.sendall(bytes(response, "utf-8"))
         connection.close()
 
     def _get_404_response(self):
@@ -138,8 +137,15 @@ class HttpServer(SocketServer):
     def set_404_page(self, path):
         self._not_found_page = path
 
+import argparse
 if __name__ == "__main__":
-    s = HttpServer("localhost", port=80)
+    parser = argparse.ArgumentParser()
+    parser.add_argument("-a", "--address", action="store", default="127.0.0.1")
+    parser.add_argument("-p", "--port", action="store", default="9000", type=int)
+    parser.add_argument("--docroot", action="store", default="/var/www/steve")
+    parser.add_argument("-d", "--daemonize")
+    args = parser.parse_args()
+    s = HttpServer(args.address, port=args.port, docroot=args.docroot)
     s.set_404_page(s.docroot + "/404.html")
-    print("Serving @ '{addr}' on port {port}".format(addr="localhost", port=80))
+    print("Serving @ '{addr}' on port {port}".format(addr=args.address, port=args.port))
     s.serve()

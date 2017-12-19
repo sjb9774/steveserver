@@ -8,11 +8,7 @@ class TestSocketServerSetup(unittest.TestCase):
     def setUp(self):
         self.server = SocketServer("localhost", port=9000)
         self.t = threading.Thread(target=self.server.serve)
-        self.t.start()
-        time.sleep(.5)
 
-    def test_socket_server_ping(self):
-        self.assertTrue(self.server.alive)
-        self.server.stop()
-        self.t.join()
+    def test_socket_server_setup(self):
         self.assertFalse(self.server.alive)
+        self.t.start()
