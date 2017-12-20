@@ -22,6 +22,11 @@ class SocketServer(object):
         self.on_message = on_message or getattr(self, "on_message", None)
         self.alive = False
 
+    def dserve(self):
+        t = threading.Thread(target=self.serve)
+        t.start()
+        return t
+
     def serve(self):
         self.socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         self.socket.bind((self.address, self.port))
